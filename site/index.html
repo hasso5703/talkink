@@ -42,13 +42,14 @@
 </nav>
 
 <header class="hero" id="top">
+  <div class="aurora" aria-hidden="true"></div>
   <p class="eyebrow reveal"><span class="dot"></span>100% on-device · free &amp; open source</p>
   <h1 class="reveal d1">
     <span class="say">Talk.</span>
     <em class="written">Ink.</em>
   </h1>
-  <p class="sub reveal d2">Say it, it’s written. Hold a key, speak, release: your words
-  appear right where your cursor is, in any app. Nothing ever leaves your&nbsp;Mac.</p>
+  <p class="sub reveal d2">Say it, it’s written. Hold a key, speak, release, and your words
+  land right where your cursor is, in any&nbsp;app.</p>
 
   <div class="cta reveal d3">
     <a class="btn btn-hero" href="https://github.com/hasso5703/talkink/releases/latest/download/Talkink.dmg">
@@ -70,9 +71,14 @@
       <span class="typed">Talkink types this for you, right at your cursor.</span><span class="caret"></span>
     </div>
   </div>
+
+  <a class="scroll-cue reveal d4" href="#demo" aria-label="Scroll to the demo">
+    <span>Scroll to see it live</span>
+    <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+  </a>
 </header>
 
-<section class="demo reveal-on-scroll" aria-label="Demo">
+<section class="demo reveal-on-scroll" id="demo" aria-label="Demo">
   <figure class="window glass-strong">
     <img src="assets/demo.gif" alt="Dictating into Claude Code with Talkink: hold Right Option, speak, and the text is pasted at the cursor" width="760" height="534">
   </figure>
