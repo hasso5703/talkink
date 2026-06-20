@@ -3,15 +3,15 @@
   <channel>
     <title>Talkink</title>
     <item>
-      <title>Talkink 0.6.1</title>
-      <pubDate>Thu, 11 Jun 2026 15:51:38 +0000</pubDate>
-      <sparkle:version>10</sparkle:version>
-      <sparkle:shortVersionString>0.6.1</sparkle:shortVersionString>
+      <title>Talkink 0.7.0</title>
+      <pubDate>Sat, 20 Jun 2026 11:01:56 +0000</pubDate>
+      <sparkle:version>11</sparkle:version>
+      <sparkle:shortVersionString>0.7.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/hasso5703/talkink/releases/tag/v0.6.1</sparkle:releaseNotesLink>
+      <sparkle:releaseNotesLink>https://github.com/hasso5703/talkink/releases/tag/v0.7.0</sparkle:releaseNotesLink>
       <enclosure
-        url="https://github.com/hasso5703/talkink/releases/download/v0.6.1/Talkink.zip"
-        sparkle:edSignature="Aqh5z8goaI1M1O6awENqvqsyXio4haysKs/nOYQZThcHDJiMgiDVNYC7PZZKdEJCoqFLRNs3Ou6NMBA2kvjJDQ==" length="19271139"
+        url="https://github.com/hasso5703/talkink/releases/download/v0.7.0/Talkink.zip"
+        sparkle:edSignature="e3wc0SJRHiHZlMOE8jyJgJCuvyGKJQ+Ebc9UWqWnK/hPSGczlkwFKEHtBrguwc/8I5oUyWrrUR7NPKI9+v2BDQ==" length="19535706"
         type="application/octet-stream"/>
     </item>
   </channel>
