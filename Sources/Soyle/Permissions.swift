@@ -1,13 +1,15 @@
 import Foundation
 import AppKit
 import AVFoundation
-import CoreGraphics
 import ApplicationServices
 
 /// Permissions used by Talkink:
 ///  • Microphone — to record (required).
-///  • Input Monitoring — listen-only global CGEventTap for push-to-talk (required).
-///  • Accessibility — auto-paste at the cursor (optional; clipboard-only without it).
+///  • Accessibility — lets the listen-only event tap see the push-to-talk key
+///    AND lets auto-paste post ⌘V. It's a superset that covers both "listen"
+///    and "post" (per Apple DTS), so it's the single key+paste permission, and
+///    AXIsProcessTrustedWithOptions auto-registers the app in the Accessibility
+///    list, so the user just flips the switch (no manual "+", no drag).
 enum Permissions {
 
     // MARK: Microphone
@@ -26,38 +28,16 @@ enum Permissions {
         }
     }
 
-    // MARK: Input Monitoring (listen-only event tap)
-    static var hasInputMonitoring: Bool {
-        CGPreflightListenEventAccess()
-    }
-
-    /// Prompts once and opens the Input Monitoring pane. AppDelegate re-arms the
-    /// tap automatically once the grant lands (relaunch only as a fallback).
-    static func requestInputMonitoring() {
-        if !CGPreflightListenEventAccess() {
-            CGRequestListenEventAccess()
-        }
-    }
-
-    /// Reveal Talkink.app in a Finder window, so the user can drag it straight
-    /// into the Input Monitoring list (on macOS 26 answering the system prompt
-    /// no longer registers the app there — verified — manual add is the path).
-    static func revealAppInFinder() {
-        NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
-    }
-
-    // MARK: Settings deep-links
     static func openMicrophoneSettings() {
         open("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
     }
 
-    static func openInputMonitoringSettings() {
-        open("x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
-    }
-
-    // MARK: Accessibility (required to auto-paste — synthetic ⌘V into other apps)
+    // MARK: Accessibility (the push-to-talk key tap + auto-paste)
     static var hasAccessibility: Bool { AXIsProcessTrusted() }
 
+    /// Prompt for Accessibility. AXIsProcessTrustedWithOptions both shows the
+    /// system prompt and registers the app in the Accessibility list, so the
+    /// user only has to flip the switch.
     static func requestAccessibility() {
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)

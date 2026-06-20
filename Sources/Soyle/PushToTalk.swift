@@ -2,9 +2,12 @@ import Foundation
 import CoreGraphics
 import Carbon.HIToolbox
 
-/// Global push-to-talk via a listen-only CGEventTap (needs Input Monitoring,
-/// sandbox-friendly — Apple DTS's recommended approach). Detects hold/release of
-/// a configurable key, including modifier keys (which only emit flagsChanged).
+/// Global push-to-talk via a listen-only CGEventTap. The tap is granted by
+/// Accessibility, which is a superset that covers both "listen" and "post"
+/// (Apple DTS): one permission for the key AND auto-paste, and it auto-appears
+/// in the Accessibility list (no manual drag). Listen-only keeps it passive, so
+/// a stall never freezes the user's keyboard. Detects hold/release of a
+/// configurable key, including modifier keys (which only emit flagsChanged).
 final class PushToTalk {
     /// Known good default keys. Modifier keys report press/release via flagsChanged.
     enum Key: Int, CaseIterable {
@@ -147,11 +150,14 @@ final class PushToTalk {
         machine.reset()
     }
 
-    /// Start the tap. Returns false if Input Monitoring isn't granted (tap can't be created).
+    /// Start the tap. Returns false if Accessibility isn't granted yet (the tap
+    /// can't be created). Gating on Accessibility here means we never trip the
+    /// separate Input Monitoring prompt; callers retry via the arm timer because
+    /// AXIsProcessTrusted can lag a fresh toggle by a beat.
     @discardableResult
     func start() -> Bool {
         guard tap == nil else { return true }
-        guard Permissions.hasInputMonitoring else { return false }
+        guard Permissions.hasAccessibility else { return false }
 
         let mask: CGEventMask =
             (1 << CGEventType.flagsChanged.rawValue) |

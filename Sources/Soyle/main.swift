@@ -32,8 +32,20 @@ if let i = CommandLine.arguments.firstIndex(of: "--dictatetest") {
         let v = CommandLine.arguments[li + 1]
         lang = (v == "auto") ? nil : v
     }
-    let files = Array(CommandLine.arguments[(i + 1)...]).filter { !$0.hasPrefix("--") && $0 != lang }
-    SelfTest.runDictateTest(language: lang, paths: files) // never returns
+    var modelID: String? = nil
+    if let mi = CommandLine.arguments.firstIndex(of: "--model"), mi + 1 < CommandLine.arguments.count {
+        modelID = CommandLine.arguments[mi + 1]
+    }
+    let files = Array(CommandLine.arguments[(i + 1)...]).filter {
+        !$0.hasPrefix("--") && $0 != lang && $0 != modelID
+    }
+    SelfTest.runDictateTest(language: lang, modelID: modelID, paths: files) // never returns
+}
+
+// Render every onboarding step to PNG offscreen (no GUI window, no prompts).
+if let i = CommandLine.arguments.firstIndex(of: "--onboarding-shots") {
+    let dir = (i + 1 < CommandLine.arguments.count) ? CommandLine.arguments[i + 1] : "/tmp/onboarding_shots"
+    OnboardingShots.run(outDir: dir)
 }
 #endif
 

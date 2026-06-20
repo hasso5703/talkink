@@ -59,11 +59,11 @@ enum DiagnosticsReport {
         lines.append("### Environment")
         lines.append("- Talkink \(version) (build \(build))")
         lines.append("- macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
-        lines.append(String(format: "- %@ — %.0f GB RAM", chip, ramGB))
+        lines.append(String(format: "- %@, %.0f GB RAM", chip, ramGB))
         lines.append("- Disk: \(disk)")
         lines.append("- Model: \(settings.modelOption.displayName) [\(settings.modelOption.id)]")
         lines.append("- Language: \(settings.language.displayName)")
-        lines.append("- Permissions: microphone \(mark(Permissions.hasMicrophone)) · input monitoring \(mark(Permissions.hasInputMonitoring)) · accessibility \(mark(Permissions.hasAccessibility))")
+        lines.append("- Permissions: microphone \(mark(Permissions.hasMicrophone)) · accessibility \(mark(Permissions.hasAccessibility))")
 
         let errors = ErrorLog.shared.recent(8)
         lines.append("")
@@ -74,7 +74,7 @@ enum DiagnosticsReport {
             let formatter = ISO8601DateFormatter()
             for entry in errors {
                 var line = "- \(formatter.string(from: entry.date)) [\(entry.component)] \(entry.message)"
-                if let detail = entry.detail { line += " — \(detail)" }
+                if let detail = entry.detail { line += ", \(detail)" }
                 lines.append(line)
             }
         }

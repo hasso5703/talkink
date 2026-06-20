@@ -86,27 +86,14 @@ struct SettingsView: View {
                 if Permissions.microphoneDenied { Permissions.openMicrophoneSettings() }
                 else { Permissions.requestMicrophone { _ in perms.refresh() } }
             }
-            permRow(title: "Input Monitoring", granted: perms.inputMonitoring,
-                    hint: "To detect your key. In the list that opens: click “+”, choose Talkink in Applications, then switch it on.",
-                    button: perms.inputMonitoring ? nil : "Allow") {
-                // On macOS 26, answering the system prompt no longer adds the
-                // app to the Input Monitoring list (verified with clean TCC
-                // identities) — so we open the pane AND reveal Talkink.app in the
-                // Finder for a direct drag into the list. The request still
-                // fires for macOS versions where it registers properly.
-                Permissions.requestInputMonitoring()
-                Permissions.openInputMonitoringSettings()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                    if !Permissions.hasInputMonitoring { Permissions.revealAppInFinder() }
-                }
-            }
             permRow(title: "Accessibility", granted: perms.accessibility,
-                    hint: "To paste automatically at the cursor. Without it, the text stays in the clipboard (⌘V). Not in the list? Add Talkink with “+”.",
+                    hint: "To notice your dictation key and paste at the cursor. Talkink is already in the list, just switch it on.",
                     button: perms.accessibility ? nil : "Allow") {
                 // The AX prompt has its own "Open System Settings" button;
-                // ours is only the fallback.
+                // ours is only the fallback. AXIsProcessTrustedWithOptions also
+                // registers the app in the list, so there's no "+" to click.
                 Permissions.requestAccessibility()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                     if !Permissions.hasAccessibility { Permissions.openAccessibilitySettings() }
                 }
             }
@@ -114,11 +101,10 @@ struct SettingsView: View {
             Text("Permissions")
         } footer: {
             if perms.essentialsGranted {
-                Label(perms.accessibility ? "Everything is ready." : "Ready (auto-paste off — clipboard only).",
-                      systemImage: "checkmark.seal.fill")
+                Label("Everything is ready.", systemImage: "checkmark.seal.fill")
                     .foregroundStyle(Color.nvidia).font(.caption)
             } else {
-                Text("Microphone + Input Monitoring are required to function.")
+                Text("Microphone + Accessibility are required to function.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -156,7 +142,7 @@ struct SettingsView: View {
         } header: {
             Text("Dictation")
         } footer: {
-            Text("Hands-free: tap \(settings.pttKey.displayName) twice quickly to keep recording without holding — tap once to stop.")
+            Text("Hands-free: tap \(settings.pttKey.displayName) twice quickly to keep recording without holding, tap once to stop.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -202,7 +188,7 @@ struct SettingsView: View {
         } header: {
             Text("Vocabulary")
         } footer: {
-            Text("Names and jargon, written your way — fixed on this Mac right after transcription (e.g. “Talkink”, heard as “Talking”). Unknown words close to one of yours are corrected automatically; real words are never touched.")
+            Text("Names and jargon, written your way, fixed on this Mac right after transcription (e.g. “Talkink”, heard as “Talking”). Unknown words close to one of yours are corrected automatically; real words are never touched.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -225,7 +211,7 @@ struct SettingsView: View {
                     Label(actionError, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption).foregroundStyle(.orange)
                 }
-                Text("Models download once and stay on your Mac — you can grab several at the same time and switch instantly.")
+                Text("Models download once and stay on your Mac, you can grab several at the same time and switch instantly.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -288,7 +274,7 @@ struct SettingsView: View {
                     .padding(.horizontal, 5).padding(.vertical, 1.5)
                     .background(Capsule().fill(Color.nvidia))
                     .foregroundStyle(.black)
-                    .help("The model in use — select another one to free or delete it.")
+                    .help("The model in use, select another one to free or delete it.")
             case .preparing:
                 Label("On this Mac", systemImage: "checkmark.circle.fill")
                     .font(.system(size: 10))
@@ -306,7 +292,7 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.borderless)
-                    .help("Delete from this Mac (\(option.sizeLabel)) — you can download it again anytime.")
+                    .help("Delete from this Mac (\(option.sizeLabel)), you can download it again anytime.")
                 }
             case .downloading(let fraction):
                 Text(String(format: "%.0f%%", fraction * 100))
@@ -328,13 +314,13 @@ struct SettingsView: View {
                     Button {
                         downloads.ensureDownloaded(option)
                     } label: {
-                        Label(String(format: "Resume — %.0f%% here", fraction * 100),
+                        Label(String(format: "Resume, %.0f%% here", fraction * 100),
                               systemImage: "arrow.down.circle")
                             .font(.system(size: 10, weight: .medium))
                     }
                     .buttonStyle(.borderless)
                     .tint(.nvidia)
-                    .help("The interrupted download is safe on disk — continue where it stopped.")
+                    .help("The interrupted download is safe on disk, continue where it stopped.")
                     Button {
                         deleteCandidate = option
                     } label: {
@@ -400,7 +386,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Pause — picks up right here next time")
+                .help("Pause, picks up right here next time")
             }
             .padding(.leading, 26).padding(.vertical, 3)
         case .preparing:
@@ -449,7 +435,7 @@ struct SettingsView: View {
         } header: {
             Text("Behaviour")
         } footer: {
-            Text("URL automation lets Raycast, Shortcuts or a terminal start dictation (talkink://toggle). Off by default — any app could trigger the microphone otherwise.")
+            Text("URL automation lets Raycast, Shortcuts or a terminal start dictation (talkink://toggle). Off by default, any app could trigger the microphone otherwise.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -462,7 +448,7 @@ struct SettingsView: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Something not working?").font(.system(size: 13, weight: .medium))
-                    Text("The report shows exactly what would be shared — never your transcripts.")
+                    Text("The report shows exactly what would be shared, never your transcripts.")
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

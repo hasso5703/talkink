@@ -108,6 +108,7 @@ final class SettingsStore: ObservableObject {
         static let checkForUpdates = "soyle.checkForUpdates"
         static let hasOnboarded = "soyle.hasOnboarded"
         static let hasPickedLanguage = "soyle.hasPickedLanguage"
+        static let hasCompletedOnboarding = "soyle.hasCompletedOnboarding"
     }
 
     @Published var language: SoyleLanguage {
@@ -149,6 +150,11 @@ final class SettingsStore: ObservableObject {
     @Published var hasPickedLanguage: Bool {
         didSet { defaults.set(hasPickedLanguage, forKey: K.hasPickedLanguage) }
     }
+    /// The full guided onboarding (language + permissions + try-it) finished.
+    /// Until then the window shows the wizard instead of the History/Settings tabs.
+    @Published var hasCompletedOnboarding: Bool {
+        didSet { defaults.set(hasCompletedOnboarding, forKey: K.hasCompletedOnboarding) }
+    }
     /// Set on the first launch of a new version — drives this session's
     /// "updated" banner. Not persisted.
     @Published var justUpdatedToVersion: String?
@@ -172,6 +178,7 @@ final class SettingsStore: ObservableObject {
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
         hasOnboarded = defaults.bool(forKey: K.hasOnboarded)
         hasPickedLanguage = defaults.bool(forKey: K.hasPickedLanguage)
+        hasCompletedOnboarding = defaults.bool(forKey: K.hasCompletedOnboarding)
     }
 
     private func applyLoginItem(_ on: Bool) {
@@ -184,7 +191,7 @@ final class SettingsStore: ObservableObject {
             }
             loginItemError = nil
         } catch {
-            loginItemError = "Couldn't \(on ? "enable" : "disable") it — \(error.localizedDescription)"
+            loginItemError = "Couldn't \(on ? "enable" : "disable") it, \(error.localizedDescription)"
             ErrorLog.shared.record(component: "settings",
                                    message: "Launch-at-login toggle failed",
                                    detail: error.localizedDescription)

@@ -170,10 +170,20 @@ enum SelfTest {
     /// dictation path without GUI/mic/clipboard. The best offline proxy for
     /// "what would the app actually do with this clip".
     /// Usage: Soyle [--lang fr-FR] --dictatetest FILE...
-    static func runDictateTest(language: String?, paths: [String]) -> Never {
+    static func runDictateTest(language: String?, modelID: String?, paths: [String]) -> Never {
         func err(_ s: String) { FileHandle.standardError.write(Data((s + "\n").utf8)) }
-        guard !paths.isEmpty else { err("[dictatetest] usage: [--lang CODE] --dictatetest FILE..."); exit(2) }
-        let model = SettingsStore.shared.modelOption
+        guard !paths.isEmpty else { err("[dictatetest] usage: --dictatetest FILE... [--lang CODE] [--model REPO_ID]"); exit(2) }
+        let model: ASRModelOption
+        if let modelID {
+            guard let picked = ASRCatalog.option(forID: modelID) else {
+                err("[dictatetest] unknown --model \(modelID). Options:")
+                for o in ASRCatalog.options { err("    \(o.id)") }
+                exit(2)
+            }
+            model = picked
+        } else {
+            model = SettingsStore.shared.modelOption
+        }
         let engine = TranscriptionEngine(model: model)
         Task {
             do {

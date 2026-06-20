@@ -10,7 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case ready
         case recording
         case transcribing
-        case needsInputMonitoring
+        case needsAccessibility
         case loadFailed(String)             // model load/download failed — reason stays visible in the menu
     }
 
@@ -68,6 +68,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         ptt.handsFreeEnabled = settings.handsFreeDoubleTap
         observeSettings()
+        // Run the version-change check first: it marks onboarding complete for
+        // updating users, which gates whether the wizard shows below.
+        announceVersionChangeIfNeeded()
         requestPermissionsThenStart()
         loadModel()
 
@@ -82,8 +85,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.updateAvailableVersion = version
             self?.updateMenu()
         }
-
-        announceVersionChangeIfNeeded()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -105,6 +106,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.set(current, forKey: key)
         guard let previous, previous != current else { return }
         Log.app.notice("updated \(previous, privacy: .public) → \(current, privacy: .public)")
+        // A user updating from an older build already set the app up — never drop
+        // them into the new guided onboarding.
+        if !settings.hasCompletedOnboarding { settings.hasCompletedOnboarding = true }
         settings.justUpdatedToVersion = current
         DispatchQueue.main.async { [weak self] in self?.openSettings() }
     }
@@ -117,7 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // Re-arm the push-to-talk tap once Input Monitoring is granted in-session,
+    // Re-arm the push-to-talk tap once Accessibility is granted in-session,
     // so the user doesn't have to relaunch.
     private func startArmTimer() {
         armTimer?.invalidate()
@@ -127,13 +131,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func tryRearm() {
-        guard state == .needsInputMonitoring, Permissions.hasInputMonitoring else { return }
+        guard state == .needsAccessibility, Permissions.hasAccessibility else { return }
         if ptt.start() {
             armTimer?.invalidate(); armTimer = nil
             if engine.isLoaded {
                 state = .ready
             } else if modelLoadFailed {
-                state = .loadFailed(lastLoadFailureReason ?? "Model not loaded — it retries when you dictate")
+                state = .loadFailed(lastLoadFailureReason ?? "Model not loaded, it retries when you dictate")
             } else {
                 state = .loadingModel(progress: nil)
             }
@@ -143,19 +147,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Startup helpers
 
     private func requestPermissionsThenStart() {
-        // Microphone: prompt once on first launch.
-        if AVCaptureDeviceStatusIsUndetermined() {
+        // Microphone: prompt at launch only for returning users. New users grant
+        // it in context, from the guided onboarding's microphone step, instead of
+        // being ambushed by a prompt before they know what the app is.
+        if settings.hasCompletedOnboarding, AVCaptureDeviceStatusIsUndetermined() {
             Permissions.requestMicrophone { _ in }
         }
-        // Input Monitoring: needed for the global tap.
+        // Accessibility grants the global key tap (and auto-paste); start()
+        // succeeds once it's granted, otherwise we wait and re-arm.
         if ptt.start() {
             state = .loadingModel(progress: nil) // will flip to .ready once model loads
         } else {
-            state = .needsInputMonitoring
+            state = .needsAccessibility
             startArmTimer()       // auto-recover once the grant lands (no relaunch needed)
         }
-        // First run, or push-to-talk permission still missing → show onboarding/settings.
-        if !settings.hasOnboarded || !Permissions.hasInputMonitoring {
+        // Show the window for the wizard (onboarding unfinished) or when push-to-talk
+        // permission is missing (a returning user needs to re-grant it).
+        if !settings.hasCompletedOnboarding || !Permissions.hasAccessibility {
             DispatchQueue.main.async { [weak self] in self?.openSettings() }
         }
         settings.hasOnboarded = true
@@ -207,7 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Never clobber the permission gate — it owns the menu until the tap
         // is armed (otherwise the re-arm timer's guard can never fire and the
         // app shows "Ready" with a dead hotkey).
-        if state != .needsInputMonitoring { state = .loadingModel(progress: nil) }
+        if state != .needsAccessibility { state = .loadingModel(progress: nil) }
         let center = ModelDownloadCenter.shared
         loadTask = Task { @MainActor in
             do {
@@ -223,7 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if engine.isLoaded {
                     center.markActive(target)
                     loadSileroIfNeeded()
-                    if state != .needsInputMonitoring { state = .ready } else { updateMenu() }
+                    if state != .needsAccessibility { state = .ready } else { updateMenu() }
                 } else {
                     center.clearLoadMarker(target)
                 }
@@ -242,9 +250,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         modelLoadFailed = true
         lastLoadFailureReason = reason
         ErrorLog.shared.record(component: "model",
-                               message: "\(target.displayName) couldn't load — \(reason)",
+                               message: "\(target.displayName) couldn't load, \(reason)",
                                detail: detail)
-        if state != .needsInputMonitoring { state = .loadFailed(reason) }
+        if state != .needsAccessibility { state = .loadFailed(reason) }
     }
 
     /// Honest, actionable load-failure wording (offline vs disk vs generic).
@@ -255,9 +263,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let urlError = error as? URLError {
             switch urlError.code {
             case .notConnectedToInternet, .dataNotAllowed, .cannotFindHost, .dnsLookupFailed:
-                return "Can't download the model — you appear to be offline. It retries when you dictate."
+                return "Can't download the model, you appear to be offline. It retries when you dictate."
             case .timedOut, .networkConnectionLost:
-                return "The model download was interrupted — it resumes when you dictate."
+                return "The model download was interrupted, it resumes when you dictate."
             default:
                 break
             }
@@ -302,7 +310,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // weights: the user keeps a working model and learns why.
         if case .insufficient(let message) = SystemResources.memoryVerdict(forWeightsGB: newModel.sizeGB) {
             ErrorLog.shared.record(component: "model",
-                                   message: "\(newModel.displayName) selection refused — \(message)")
+                                   message: "\(newModel.displayName) selection refused, \(message)")
             presentModelRefused(newModel, reason: message)
             if settings.modelID != engine.model.id {
                 settings.modelID = engine.model.id   // snap the picker back to reality
@@ -341,16 +349,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              autoHideAfter: 1.5)
             } else if case .loadFailed = state {
                 // "Retries when you dictate" — keep that promise right here.
-                overlay.show(.error("Model not loaded — retrying now…"), autoHideAfter: 2)
+                overlay.show(.error("Model not loaded, retrying now…"), autoHideAfter: 2)
                 loadModel()
-            } else if state == .needsInputMonitoring {
-                promptInputMonitoring()
+            } else if state == .needsAccessibility {
+                promptAccessibility()
             }
             return
         }
         guard Permissions.hasMicrophone else {
             if Permissions.microphoneDenied {
-                overlay.show(.error("Microphone denied — see Settings"), autoHideAfter: 2.5)
+                overlay.show(.error("Microphone denied, see Settings"), autoHideAfter: 2.5)
                 Permissions.openMicrophoneSettings()
             } else {
                 Permissions.requestMicrophone { _ in }
@@ -368,18 +376,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ErrorLog.shared.record(component: "audio",
                                    message: "Recording couldn't start",
                                    detail: error.localizedDescription)
-            overlay.show(.error("Microphone unavailable — \(error.localizedDescription)"), autoHideAfter: 3)
+            overlay.show(.error("Microphone unavailable, \(error.localizedDescription)"), autoHideAfter: 3)
         }
     }
 
     /// Mid-recording capture failure (device yanked and recovery failed):
     /// stop cleanly and say so — never keep "recording" silence.
     private func recordingBroke(_ reason: String) {
-        ErrorLog.shared.record(component: "audio", message: "Recording aborted — \(reason)")
+        ErrorLog.shared.record(component: "audio", message: "Recording aborted, \(reason)")
         guard state == .recording else { return }
         abortRecordingIfNeeded()
         state = .ready
-        overlay.show(.error("Microphone lost — dictation stopped"), autoHideAfter: 3)
+        overlay.show(.error("Microphone lost, dictation stopped"), autoHideAfter: 3)
     }
 
     /// The event tap died and PushToTalk's re-enable didn't stick: recreate it,
@@ -388,13 +396,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ErrorLog.shared.record(component: "hotkey",
                                message: "Push-to-talk tap disabled by the system and re-enable failed")
         ptt.stop()
-        if Permissions.hasInputMonitoring, ptt.start() {
+        if Permissions.hasAccessibility, ptt.start() {
             Log.app.notice("event tap recreated after system disable")
             return
         }
-        state = .needsInputMonitoring
+        state = .needsAccessibility
         startArmTimer()
-        overlay.show(.error("Push-to-talk lost — check Input Monitoring"), autoHideAfter: 4)
+        overlay.show(.error("Push-to-talk lost, check Accessibility"), autoHideAfter: 4)
     }
 
     private func stopRecording() {
@@ -427,9 +435,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard samples.count >= 8_000 else {
             if wallClock >= 1.5 {
                 ErrorLog.shared.record(component: "audio", message: String(
-                    format: "Held the key %.1fs but captured only %d samples — the input device produced no audio",
+                    format: "Held the key %.1fs but captured only %d samples, the input device produced no audio",
                     wallClock, samples.count))
-                overlay.show(.error("No audio captured — check your input device (System Settings → Sound)"),
+                overlay.show(.error("No audio captured, check your input device (System Settings → Sound)"),
                              autoHideAfter: 4)
             } else {
                 overlay.hide()
@@ -447,9 +455,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let watchdog = DispatchWorkItem { [weak self] in
             guard let self, self.state == .transcribing, gen == self.dictationGeneration else { return }
             ErrorLog.shared.record(component: "model",
-                                   message: "Transcription still running after 120s — state reset so dictation keeps working")
+                                   message: "Transcription still running after 120s, state reset so dictation keeps working")
             self.state = .ready
-            self.overlay.show(.error("Transcription stalled — please try again (and Report a Problem)"),
+            self.overlay.show(.error("Transcription stalled, please try again (and Report a Problem)"),
                               autoHideAfter: 5)
         }
         transcriptionWatchdog?.cancel()
@@ -491,7 +499,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                            message: "Transcription failed",
                                            detail: error.localizedDescription)
                     if self.state == .transcribing, gen == self.dictationGeneration {
-                        self.overlay.show(.error("Transcription error — \(error.localizedDescription)"),
+                        self.overlay.show(.error("Transcription error, \(error.localizedDescription)"),
                                           autoHideAfter: 3)
                         self.state = .ready
                     }
@@ -556,6 +564,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 format: "Speech detected (%.1fs active) but the model returned an empty transcript (language: auto)",
                 stats.activeSeconds))
         case .deliver(let text):
+            // Surface the first words to the onboarding "try it" step (no-op once
+            // the user has finished setup).
+            if !settings.hasCompletedOnboarding { OnboardingProbe.shared.lastHeard = text }
             if !AutoPaster.secureInputActive {
                 // Words are never lost, even when a newer dictation owns the UI.
                 HistoryStore.shared.add(text: text, language: lang, audioSeconds: stats.duration)
@@ -565,8 +576,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // No ⌘V either — synthesizing it would paste the clipboard's
                 // PREVIOUS content into the user's document.
                 ErrorLog.shared.record(component: "paste",
-                                       message: "Clipboard write failed — transcript NOT copied (it is in History)")
-                overlay.show(.error("Couldn't copy — recover the text from History"), autoHideAfter: 4)
+                                       message: "Clipboard write failed, transcript NOT copied (it is in History)")
+                overlay.show(.error("Couldn't copy, recover the text from History"), autoHideAfter: 4)
                 state = .ready
                 return
             }
@@ -577,7 +588,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 case .noAccessibility:
                     outcome = .copiedNoAccessibility
                     ErrorLog.shared.record(component: "paste",
-                                           message: "Auto-paste skipped — Accessibility not granted")
+                                           message: "Auto-paste skipped, Accessibility not granted")
                 case .secureField:
                     outcome = .copiedSecureField
                 }
@@ -612,7 +623,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let langName = settings.language.displayName
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in
             self?.overlay.show(
-                .error("Tip: language is set to \(langName) — Auto would fit your speech better (Settings → Language)."),
+                .error("Tip: language is set to \(langName), Auto would fit your speech better (Settings → Language)."),
                 autoHideAfter: 5)
         }
     }
@@ -642,7 +653,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch state {
         case .recording: symbol = "mic.fill"
         case .transcribing: symbol = "waveform"
-        case .needsInputMonitoring, .loadFailed: symbol = "exclamationmark.triangle.fill"
+        case .needsAccessibility, .loadFailed: symbol = "exclamationmark.triangle.fill"
         default: symbol = "mic"
         }
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Talkink")
@@ -661,12 +672,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // An available update gets a first-class item — nobody should have to
         // think of clicking "Check for Updates…" to learn about it.
         if let version = updateAvailableVersion {
-            menu.addItem(item("⬆️ Update to \(version) — Install…", #selector(checkForUpdates)))
+            menu.addItem(item("⬆️ Update to \(version), Install…", #selector(checkForUpdates)))
             menu.addItem(.separator())
         }
 
-        if state == .needsInputMonitoring {
-            menu.addItem(item("Allow “Input Monitoring”…", #selector(promptInputMonitoringMenu)))
+        if state == .needsAccessibility {
+            menu.addItem(item("Allow “Accessibility”…", #selector(promptAccessibilityMenu)))
             menu.addItem(.separator())
         }
         if case .loadFailed = state {
@@ -690,7 +701,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let modelItem = NSMenuItem(title: "Model: \(settings.modelOption.displayName)", action: nil, keyEquivalent: "")
         let modelMenu = NSMenu()
         for option in ASRCatalog.options {
-            let suffix = option == ASRCatalog.default ? " — recommended" : ""
+            let suffix = option == ASRCatalog.default ? ", recommended" : ""
             let mi = item("\(option.displayName)  (\(option.sizeLabel))\(suffix)", #selector(selectModel(_:)))
             mi.representedObject = option.id
             mi.state = (option.id == settings.modelID) ? .on : .off
@@ -735,13 +746,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let pct else { return "⏳ Loading model…" }
             return pct > 0 ? "⏳ Downloading model… \(pct)%"
                            : "⏳ Downloading model (\(settings.modelOption.sizeLabel), one-time)…"
-        case .ready: return "● Ready — hold \(settings.pttKey.displayName)"
+        case .ready: return "● Ready, hold \(settings.pttKey.displayName)"
         case .recording:
             return ptt.isHandsFreeLocked
-                ? "🎙 Recording — tap \(settings.pttKey.displayName) to stop"
+                ? "🎙 Recording, tap \(settings.pttKey.displayName) to stop"
                 : "🎙 Recording…"
         case .transcribing: return "✍️ Transcribing…"
-        case .needsInputMonitoring: return "⚠️ Permission required"
+        case .needsAccessibility: return "⚠️ Permission required"
         case .loadFailed(let reason): return "⚠️ \(String(reason.prefix(72)))"
         }
     }
@@ -811,8 +822,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // user's explicit, opt-in choice.
             guard settings.allowURLAutomation else {
                 ErrorLog.shared.record(component: "automation",
-                    message: "URL command '\(command)' refused — “Allow URL automation” is off (Settings → Behaviour)")
-                overlay.show(.error("URL automation is off — enable it in Settings → Behaviour"), autoHideAfter: 3.5)
+                    message: "URL command '\(command)' refused, “Allow URL automation” is off (Settings → Behaviour)")
+                overlay.show(.error("URL automation is off, enable it in Settings → Behaviour"), autoHideAfter: 3.5)
                 return
             }
             handleDictationCommand(command)
@@ -859,14 +870,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.post(name: .soyleOpenReport, object: nil)
     }
 
-    @objc private func promptInputMonitoringMenu() { openSettings() }
+    @objc private func promptAccessibilityMenu() { openSettings() }
 
-    private func promptInputMonitoring() { openSettings() }
+    private func promptAccessibility() { openSettings() }
 
     @objc private func about() {
         let alert = NSAlert()
         alert.messageText = "Talkink"
-        alert.informativeText = "On-device voice dictation — \(settings.modelOption.displayName) via Apple MLX.\nHold \(settings.pttKey.displayName), speak, release — the text is pasted at your cursor and copied."
+        alert.informativeText = "On-device voice dictation, \(settings.modelOption.displayName) via Apple MLX.\nHold \(settings.pttKey.displayName), speak, release, the text is pasted at your cursor and copied."
         alert.addButton(withTitle: "OK")
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
