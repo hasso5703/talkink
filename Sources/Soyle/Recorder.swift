@@ -108,7 +108,7 @@ final class Recorder {
         do {
             try installTap()
             if !engine.isRunning { engine.prepare(); try engine.start() }
-            Log.audio.notice("audio route changed mid-recording — capture re-armed")
+            Log.audio.notice("audio route changed mid-recording, capture re-armed")
         } catch {
             Log.audio.error("audio reconfig recovery failed: \(error.localizedDescription, privacy: .public)")
             onFailure("Microphone changed and couldn't be recovered (\(error.localizedDescription))")

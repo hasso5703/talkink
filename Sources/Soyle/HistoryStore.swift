@@ -100,9 +100,9 @@ final class HistoryStore: ObservableObject {
             let backup = fileURL.deletingLastPathComponent()
                 .appendingPathComponent("history.corrupt-\(Int(Date().timeIntervalSince1970)).json")
             try? FileManager.default.moveItem(at: fileURL, to: backup)
-            lastError = "History couldn't be read — the damaged file was kept as \(backup.lastPathComponent)."
+            lastError = "History couldn't be read, the damaged file was kept as \(backup.lastPathComponent)."
             errorLog.record(component: "history",
-                            message: "history.json unreadable — moved aside, starting fresh",
+                            message: "history.json unreadable, moved aside, starting fresh",
                             detail: error.localizedDescription)
         }
     }
@@ -113,7 +113,7 @@ final class HistoryStore: ObservableObject {
             try data.write(to: fileURL, options: .atomic)
             if lastError != nil { lastError = nil }
         } catch {
-            lastError = "History couldn't be saved — \(error.localizedDescription)"
+            lastError = "History couldn't be saved, \(error.localizedDescription)"
             errorLog.record(component: "history",
                             message: "history.json save failed",
                             detail: error.localizedDescription)

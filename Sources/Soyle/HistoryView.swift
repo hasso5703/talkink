@@ -133,7 +133,7 @@ struct HistoryView: View {
         VStack(spacing: 10) {
             Image(systemName: "tray").font(.system(size: 34)).foregroundStyle(.secondary)
             Text("No transcriptions yet").font(.headline)
-            Text("Hold your key, speak, release — everything will appear here.")
+            Text("Hold your key, speak, release, everything will appear here.")
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

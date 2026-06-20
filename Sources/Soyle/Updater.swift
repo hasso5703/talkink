@@ -11,7 +11,7 @@ final class Updater: NSObject, SPUUpdaterDelegate {
     private var controller: SPUStandardUpdaterController!
 
     /// A scheduled check found a new version — drives the prominent
-    /// "Update to X — Install…" menu item. Called on the main queue.
+    /// "Update to X, Install…" menu item. Called on the main queue.
     var onUpdateAvailable: ((String) -> Void)?
 
     /// Mirrors Settings → "Check for updates automatically".
@@ -59,7 +59,7 @@ final class Updater: NSObject, SPUUpdaterDelegate {
     }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
-        Log.update.notice("willRelaunchApplication — arming relauncher")
+        Log.update.notice("willRelaunchApplication, arming relauncher")
         spawnDetachedRelauncher()
     }
 
@@ -76,13 +76,13 @@ final class Updater: NSObject, SPUUpdaterDelegate {
         for i in $(seq 1 120); do
           if ! /bin/kill -0 \(pid) 2>/dev/null; then
             /bin/sleep 0.7
-            echo "$(date '+%H:%M:%S') pid \(pid) gone — opening app" >> "$LOG"
+            echo "$(date '+%H:%M:%S') pid \(pid) gone, opening app" >> "$LOG"
             /usr/bin/open "\(bundlePath)" >> "$LOG" 2>&1
             exit 0
           fi
           /bin/sleep 0.5
         done
-        echo "$(date '+%H:%M:%S') timeout — app never exited" >> "$LOG"
+        echo "$(date '+%H:%M:%S') timeout, app never exited" >> "$LOG"
         """
         let helper = Process()
         helper.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -95,7 +95,7 @@ final class Updater: NSObject, SPUUpdaterDelegate {
             // the post-update window-open closes the loop on manual relaunch.
             relauncherSpawned = false   // the other hook may retry
             ErrorLog.shared.record(component: "update",
-                                   message: "Update installs, but the relauncher couldn't start — relaunch Talkink manually after this update",
+                                   message: "Update installs, but the relauncher couldn't start, relaunch Talkink manually after this update",
                                    detail: error.localizedDescription)
         }
     }
@@ -108,7 +108,7 @@ final class Updater: NSObject, SPUUpdaterDelegate {
         if ns.domain == "SUSparkleErrorDomain", ns.code == 1001 { return }
         if ns.localizedDescription.localizedCaseInsensitiveContains("cancel") { return }
         ErrorLog.shared.record(component: "update",
-                               message: "Update aborted — \(ns.localizedDescription)",
+                               message: "Update aborted, \(ns.localizedDescription)",
                                detail: "\(ns.domain) code \(ns.code)")
     }
 

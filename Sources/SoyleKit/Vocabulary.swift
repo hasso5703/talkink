@@ -190,9 +190,9 @@ public final class Vocabulary: ObservableObject {
             let backup = fileURL.deletingLastPathComponent()
                 .appendingPathComponent("vocabulary.corrupt-\(Int(Date().timeIntervalSince1970)).json")
             try? FileManager.default.moveItem(at: fileURL, to: backup)
-            lastError = "Vocabulary couldn't be read — the damaged file was kept as \(backup.lastPathComponent)."
+            lastError = "Vocabulary couldn't be read, the damaged file was kept as \(backup.lastPathComponent)."
             errorLog.record(component: "vocabulary",
-                            message: "vocabulary.json unreadable — moved aside",
+                            message: "vocabulary.json unreadable, moved aside",
                             detail: error.localizedDescription)
         }
     }
@@ -203,7 +203,7 @@ public final class Vocabulary: ObservableObject {
             try data.write(to: fileURL, options: .atomic)
             if lastError != nil { lastError = nil }
         } catch {
-            lastError = "Vocabulary couldn't be saved — \(error.localizedDescription)"
+            lastError = "Vocabulary couldn't be saved, \(error.localizedDescription)"
             errorLog.record(component: "vocabulary",
                             message: "vocabulary.json save failed",
                             detail: error.localizedDescription)

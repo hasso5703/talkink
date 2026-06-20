@@ -15,7 +15,7 @@ struct ReportProblemView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Report a Problem")
                 .font(.system(size: 17, weight: .bold))
-            Text("This is everything that would be shared — your environment and the recent error journal. Never your transcripts or audio. \"Open GitHub Issue\" lets you review and edit before posting (GitHub account needed).")
+            Text("This is everything that would be shared, your environment and the recent error journal. Never your transcripts or audio. \"Open GitHub Issue\" lets you review and edit before posting (GitHub account needed).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
