@@ -166,6 +166,37 @@ final class MemoryVerdictTests: XCTestCase {
     }
 }
 
+// MARK: - Disk pre-flight
+
+final class DiskPreflightTests: XCTestCase {
+    private func gb(_ value: Double) -> Int64 { Int64(value * 1_000_000_000) }
+
+    func testRoomyVolumePasses() {
+        // 5 GB free, needs 2 GB (+1 GB margin = 3 GB) → fits with room to spare.
+        XCTAssertNil(SystemResources.diskPreflight(neededBytes: gb(2), freeBytes: gb(5)))
+    }
+
+    func testTooLittleSpaceIsRefused() {
+        let verdict = SystemResources.diskPreflight(neededBytes: gb(4), freeBytes: gb(1))
+        guard case .notEnoughDisk = verdict else {
+            return XCTFail("expected notEnoughDisk, got \(String(describing: verdict))")
+        }
+    }
+
+    func testMarginIsEnforcedNotJustRawSize() {
+        // 4.5 GB free, needs exactly 4 GB: the raw size fits, but the 1 GB
+        // safety margin does not → refuse rather than fill the volume to the rim.
+        let verdict = SystemResources.diskPreflight(neededBytes: gb(4), freeBytes: gb(4) + gb(0.5))
+        guard case .notEnoughDisk = verdict else { return XCTFail("margin must be enforced") }
+    }
+
+    func testMessageNamesDiskAndAvoidsEmDash() {
+        let message = SystemResources.diskPreflight(neededBytes: gb(4), freeBytes: gb(1))?.errorDescription ?? ""
+        XCTAssertTrue(message.lowercased().contains("disk"), message)
+        XCTAssertFalse(message.contains("\u{2014}"), "user-facing copy must not use em-dashes")
+    }
+}
+
 // MARK: - Downloader logic (no network)
 
 final class ModelDownloaderLogicTests: XCTestCase {

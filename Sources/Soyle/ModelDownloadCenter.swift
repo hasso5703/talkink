@@ -81,14 +81,12 @@ final class ModelDownloadCenter: ObservableObject {
         // under the home volume.)
         let neededBytes = max(Int64(option.sizeGB * 1_000_000_000) - ModelDownloader.diskUsage(repo: option.id), 0)
         if let free = SystemResources.freeDiskBytes(for: FileManager.default.homeDirectoryForCurrentUser),
-           free < neededBytes + 500_000_000 {
-            let neededGB = Double(neededBytes) / 1_000_000_000
-            let freeGB = Double(free) / 1_000_000_000
-            let message = String(format: "Not enough disk space — needs ~%.1f GB, %.1f GB free.", neededGB, freeGB)
+           let shortfall = SystemResources.diskPreflight(neededBytes: neededBytes, freeBytes: free) {
+            let message = shortfall.errorDescription ?? "Not enough disk space."
             states[option.id] = .failed(message)
             ErrorLog.shared.record(component: "download",
                                    message: "\(option.displayName): \(message)")
-            return Task { throw PreflightError.notEnoughDisk(neededGB: neededGB, freeGB: freeGB) }
+            return Task { throw shortfall }
         }
         states[option.id] = .downloading(0)
         let task = Task<Void, Error> { [weak self] in
@@ -126,7 +124,7 @@ final class ModelDownloadCenter: ObservableObject {
                         let reason = Self.humanMessage(for: error)
                         self.states[option.id] = .failed(reason)
                         ErrorLog.shared.record(component: "download",
-                                               message: "\(option.displayName) download failed — \(reason)",
+                                               message: "\(option.displayName) download failed, \(reason)",
                                                detail: String(describing: error))
                     }
                 }
@@ -144,9 +142,9 @@ final class ModelDownloadCenter: ObservableObject {
             case .notConnectedToInternet, .dataNotAllowed:
                 return "You appear to be offline."
             case .networkConnectionLost:
-                return "The connection dropped — Resume picks up where it stopped."
+                return "The connection dropped, Resume picks up where it stopped."
             case .timedOut:
-                return "The connection timed out — check your network, then Retry."
+                return "The connection timed out, check your network, then Retry."
             case .cannotFindHost, .dnsLookupFailed, .cannotConnectToHost:
                 return "huggingface.co can't be reached (network or DNS)."
             default:
@@ -156,14 +154,14 @@ final class ModelDownloadCenter: ObservableObject {
         if case ModelDownloader.DownloadError.badStatus(let code, _) = error {
             switch code {
             case 401, 403: return "Hugging Face refused the request (HTTP \(code))."
-            case 429: return "Hugging Face is rate-limiting downloads — wait a minute, then Retry."
-            case 500...599: return "Hugging Face is having trouble (HTTP \(code)) — try again later."
+            case 429: return "Hugging Face is rate-limiting downloads, wait a minute, then Retry."
+            case 500...599: return "Hugging Face is having trouble (HTTP \(code)), try again later."
             default: return "Download failed (HTTP \(code))."
             }
         }
         let ns = error as NSError
         if ns.domain == NSCocoaErrorDomain, ns.code == NSFileWriteOutOfSpaceError {
-            return "The disk filled up mid-download — free some space, then Resume."
+            return "The disk filled up mid-download, free some space, then Resume."
         }
         return ns.localizedDescription
     }
@@ -209,7 +207,7 @@ final class ModelDownloadCenter: ObservableObject {
             states[option.id] = .notDownloaded
             lastActionError = nil
         } catch {
-            lastActionError = "Couldn't delete \(option.displayName) — \(error.localizedDescription)"
+            lastActionError = "Couldn't delete \(option.displayName), \(error.localizedDescription)"
             ErrorLog.shared.record(component: "download",
                                    message: "Model delete failed for \(option.displayName)",
                                    detail: error.localizedDescription)

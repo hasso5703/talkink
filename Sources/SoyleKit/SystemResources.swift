@@ -17,7 +17,7 @@ public enum PreflightError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .notEnoughDisk(let needed, let free):
-            return String(format: "Not enough disk space — needs ~%.1f GB more, %.1f GB free.", needed, free)
+            return String(format: "Not enough disk space: needs ~%.1f GB more, %.1f GB free.", needed, free)
         case .notEnoughMemory(let message):
             return message
         }
@@ -62,6 +62,28 @@ public enum SystemResources {
         return values?.volumeAvailableCapacityForImportantUsage
     }
 
+    // MARK: Disk verdict
+
+    /// Default headroom kept free on top of the download. `freeDiskBytes` uses
+    /// `volumeAvailableCapacityForImportantUsage`, which counts purgeable space
+    /// and so runs ~1 GB optimistic (measured on a real volume); this margin
+    /// absorbs that so a "there's room" verdict is honest, not borrowed from
+    /// caches the OS may or may not reclaim in time.
+    public static let diskMarginBytes: Int64 = 1_000_000_000
+
+    /// Pure disk pre-flight, injectable for tests. Returns the error to surface
+    /// (and throw), or nil when the download fits with margin to spare.
+    /// `neededBytes` is what's left to fetch (total size minus partial bytes).
+    public static func diskPreflight(
+        neededBytes: Int64,
+        freeBytes: Int64,
+        marginBytes: Int64 = diskMarginBytes
+    ) -> PreflightError? {
+        guard freeBytes < neededBytes + marginBytes else { return nil }
+        return .notEnoughDisk(neededGB: Double(neededBytes) / 1_000_000_000,
+                              freeGB: Double(freeBytes) / 1_000_000_000)
+    }
+
     // MARK: Memory verdict
 
     /// Runtime need beyond the raw weights: activations, tokenizer, the app
@@ -83,7 +105,7 @@ public enum SystemResources {
         let physicalGB = Double(physicalBytes) / 1_073_741_824
         if let metal = metalLimitBytes, neededBytes > metal {
             return .insufficient(message: String(
-                format: "This model needs ~%.1f GB of memory — more than this Mac (%.0f GB) can give one app. Pick a smaller model.",
+                format: "This model needs ~%.1f GB of memory: more than this Mac (%.0f GB) can give one app. Pick a smaller model.",
                 neededGB, physicalGB))
         }
         if neededBytes > physicalBytes {
