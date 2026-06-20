@@ -81,17 +81,20 @@ brew install --cask hasso5703/tap/talkink
 > repo and [build it yourself](BUILDING.md).
 
 > **Coming from Söyle (Talkink's former name, ≤ v0.3.3)?** Your settings and history carry
-> over automatically. If push-to-talk stops responding, remove the old **Söyle** entries from
-> System Settings → Privacy & Security → *Input Monitoring* and *Accessibility* (− button),
-> then add **Talkink** and enable it, one time.
+> over automatically. If push-to-talk stops responding, remove the old **Söyle** entry from
+> System Settings → Privacy & Security → *Accessibility* (− button), then switch
+> **Talkink** on, one time.
 
 ### 2. Grant permissions (the onboarding window guides you)
 
-| Permission | Why | Note |
-|---|---|---|
-| **Microphone** | To hear you |  |
-| **Input Monitoring** | Detect the push-to-talk key everywhere | On macOS 26 you may need to add Talkink yourself: “+” or drag Talkink.app into the list (Talkink opens the pane and a Finder window for you) |
-| **Accessibility** *(optional)* | Paste at the cursor | Skip it and Talkink just copies to the clipboard (paste with ⌘V) |
+Two, and the onboarding flips them on with you, no “+” and no dragging:
+
+| Permission | Why |
+|---|---|
+| **Microphone** | To hear you |
+| **Accessibility** | Detect your push-to-talk key in any app, and paste the text at your cursor |
+
+Talkink uses Accessibility (not Input Monitoring) for the key, so it appears in the list automatically: you just switch it on, and the grant is picked up live, with no quitting and reopening.
 
 ### 3. Use it
 
@@ -169,9 +172,8 @@ as a GitHub issue you review first; nothing ever leaves your Mac on its own.
 
 ## Troubleshooting
 
-- **Push-to-talk does nothing** → grant **Input Monitoring** (System Settings → Privacy & Security → Input Monitoring). Talkink re-arms itself within a few seconds; relaunch it if the key still does nothing.
-- **Talkink doesn't appear in the Input Monitoring list** → a macOS 26 issue that hits many apps (Karabiner-Elements included): answering the permission prompt doesn't register the app. Click **“+”** in the list (or drag `Talkink.app` into it), then enable the toggle.
-- **After updating from an old version (Söyle ≤ v0.2.0), the key/auto-paste stopped working** (toggles look on but do nothing) → macOS ties permissions to the app's code signature, and early builds were signed differently. In System Settings → Privacy & Security, **remove** the old *Söyle* entries from *Input Monitoring* and *Accessibility* (− button), then add **Talkink** and enable it. One time, the identity has been stable since v0.3.0.
+- **Push-to-talk does nothing** → grant **Accessibility** (System Settings → Privacy & Security → Accessibility) and switch Talkink on. It re-arms itself within a few seconds; relaunch it if the key still does nothing.
+- **After updating from an old version (Söyle ≤ v0.2.0), the key/auto-paste stopped working** (toggles look on but do nothing) → macOS ties permissions to the app's code signature, and early builds were signed differently. In System Settings → Privacy & Security, **remove** the old *Söyle* entry from *Accessibility* (− button), then switch **Talkink** on. One time, the identity has been stable since v0.3.0.
 - **It stopped working after rebuilding from source** → ad-hoc signatures change each build; run `scripts/dev_sign_setup.sh` once to create a stable local signing identity so grants persist.
 - **Using Fn / 🌐 as the key** → set System Settings → Keyboard → "Press 🌐 to" = **Do Nothing**.
 - **Model download stalls** → check your connection and `~/.cache/huggingface`.
