@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.7.0: Guided setup, simpler permissions, smarter speech gate
+
+### Added
+- **Guided first-run onboarding.** A welcome window walks you through your
+  language and the permissions one at a time, flips each switch on with you,
+  advances on its own the moment access lands, and finishes with a live
+  "try it" so you know it works before you start.
+- **Silero VAD as the speech gate.** A tiny on-device voice-activity model now
+  decides whether you actually spoke before anything is delivered. It catches
+  pulsed noise and quiet speech that pure energy detection missed (RMS stays as
+  an automatic fallback), so the hallucination guard is sharper still.
+
+### Changed
+- **One permission instead of two for push-to-talk.** Talkink now uses
+  Accessibility (which also enables auto-paste) rather than Input Monitoring.
+  It shows up in the list on its own, you just switch it on, and it takes
+  effect live: no more dragging the app in, no more quitting and reopening.
+
+### Fixed
+- **Long status messages no longer get cut off.** The floating pill wraps and
+  resizes to fit, so disk-space and memory notices read in full.
+- **Sturdier disk pre-flight** before a model download, with real headroom so a
+  "there's room" verdict is honest.
+
 ## v0.6.1 — Hallucination guard
 
 ### Fixed
