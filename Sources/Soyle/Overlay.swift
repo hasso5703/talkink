@@ -49,7 +49,7 @@ struct OverlayView: View {
                         .combined(with: .move(edge: .bottom)))
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)   // center the pill in the panel
+        .padding(24)   // breathing room so the capsule's glow/shadow isn't clipped
         .animation(.spring(response: 0.36, dampingFraction: 0.7), value: model.state)
     }
 
@@ -87,7 +87,7 @@ struct OverlayView: View {
         case .recording(let handsFree):
             RecordingDot()
             LiveWaveform(level: model.level)
-            label(handsFree ? "Speak — tap to stop" : "Speak…")
+            label(handsFree ? "Speak, tap to stop" : "Speak…")
         case .transcribing:
             BouncingDots()
             label("Transcribing…")
@@ -109,11 +109,11 @@ struct OverlayView: View {
         switch outcome {
         case .pasted: return "Pasted"
         case .copied: return "Copied"
-        case .copiedNoAccessibility: return "Copied — allow Accessibility to auto-paste"
-        case .copiedSecureField: return "Copied — secure field, paste with ⌘V"
+        case .copiedNoAccessibility: return "Copied, allow Accessibility to auto-paste"
+        case .copiedSecureField: return "Copied, secure field, paste with ⌘V"
         case .noSpeech: return "No speech detected"
         case .notRecognized: return "Heard speech, but couldn't make out words"
-        case .wrongLanguage(let lang): return "Heard speech — but nothing in \(lang). Try Auto?"
+        case .wrongLanguage(let lang): return "Heard speech, but nothing in \(lang). Try Auto?"
         }
     }
 
@@ -135,8 +135,11 @@ struct OverlayView: View {
             .font(.system(size: 13.5, weight: .semibold, design: .rounded))
             .foregroundStyle(.white)
             .shadow(color: .black.opacity(0.5), radius: 1, y: 0.5)
-            .lineLimit(1)
-            .fixedSize()
+            .multilineTextAlignment(.center)
+            .lineLimit(4)                  // long status lines wrap instead of cropping
+            .minimumScaleFactor(0.82)      // shrink a touch before spilling past 4 lines
+            .frame(maxWidth: 250)          // wrap width — keeps the capsule a sane shape
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -212,13 +215,18 @@ private struct BouncingDots: View {
 final class OverlayController {
     let model = OverlayModel()
     private var panel: NSPanel?
+    private var host: NSHostingView<OverlayView>?
     private var hideWorkItem: DispatchWorkItem?
 
-    private let panelSize = NSSize(width: 340, height: 120)
+    // The panel is invisible (clear background); only the centered capsule
+    // shows. It's resized to the SwiftUI content's fitting size on every
+    // state change, so a short status hugs tight and a long one wraps onto
+    // several lines without ever being clipped. This is the ceiling.
+    private let maxPanelSize = NSSize(width: 460, height: 260)
 
     init() {
         let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: panelSize),
+            contentRect: NSRect(origin: .zero, size: maxPanelSize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: true
         )
@@ -232,24 +240,38 @@ final class OverlayController {
         panel.hidesOnDeactivate = false
 
         let host = NSHostingView(rootView: OverlayView(model: model))
-        host.frame = NSRect(origin: .zero, size: panelSize)
-        host.autoresizingMask = [.width, .height]
+        host.frame = NSRect(origin: .zero, size: maxPanelSize)
         panel.contentView = host
         self.panel = panel
+        self.host = host
     }
 
     func show(_ state: OverlayState, autoHideAfter seconds: Double? = nil) {
         DispatchQueue.main.async {
             self.hideWorkItem?.cancel()
-            self.position()
-            self.panel?.orderFrontRegardless()
             self.model.state = state
+            self.resizeToContent()                  // fit the panel to this message
+            self.panel?.orderFrontRegardless()
             if let seconds {
                 let work = DispatchWorkItem { [weak self] in self?.hide() }
                 self.hideWorkItem = work
                 DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
             }
         }
+    }
+
+    /// Size the panel to the SwiftUI content (clamped to the ceiling) and
+    /// re-anchor it, so the capsule grows/shrinks with the message instead of
+    /// cropping it.
+    private func resizeToContent() {
+        guard let panel, let host else { return }
+        host.layoutSubtreeIfNeeded()
+        var size = host.fittingSize
+        size.width = min(max(size.width, 96), maxPanelSize.width)
+        size.height = min(max(size.height, 64), maxPanelSize.height)
+        host.frame = NSRect(origin: .zero, size: size)
+        panel.setContentSize(size)
+        position(size: size)
     }
 
     func updateLevel(_ level: Float) {
@@ -268,7 +290,7 @@ final class OverlayController {
         }
     }
 
-    private func position() {
+    private func position(size: NSSize) {
         guard let panel else { return }
         // Anchor the pill to the window the user is dictating into — a fixed
         // screen-bottom anchor lands on whatever window sits behind when the
@@ -285,11 +307,11 @@ final class OverlayController {
         } else {
             pillCenter = NSPoint(x: vf.midX, y: vf.minY + 180) // bottom-center of the screen
         }
-        // Keep the pill comfortably on screen.
-        pillCenter.x = min(max(pillCenter.x, vf.minX + panelSize.width / 2), vf.maxX - panelSize.width / 2)
-        pillCenter.y = min(max(pillCenter.y, vf.minY + 84), vf.maxY - 84)
-        panel.setFrameOrigin(NSPoint(x: pillCenter.x - panelSize.width / 2,
-                                     y: pillCenter.y - panelSize.height / 2))
+        // Keep the pill comfortably on screen, using its actual size.
+        pillCenter.x = min(max(pillCenter.x, vf.minX + size.width / 2), vf.maxX - size.width / 2)
+        pillCenter.y = min(max(pillCenter.y, vf.minY + size.height / 2), vf.maxY - size.height / 2)
+        panel.setFrameOrigin(NSPoint(x: pillCenter.x - size.width / 2,
+                                     y: pillCenter.y - size.height / 2))
     }
 
     private func screenWithMouse() -> NSScreen? {
