@@ -66,17 +66,22 @@ public final class EspeakG2PProcessor: TextProcessor, @unchecked Sendable {
         return out
     }
 
-    /// A token is English when it's a plain ASCII word the French dictionary
-    /// doesn't know (and isn't an elision or accented). Numbers and punctuation
-    /// stay French — espeak-fr verbalises numbers in French.
+    /// A token is English only when every hyphen-separated part is a plain ASCII
+    /// word the French dictionary doesn't know. Crucially this splits on hyphens,
+    /// so common French constructions ("allons-y", "est-ce", "reste-t-il",
+    /// "montre-le-moi") stay French because a part ("allons", "est"…) is in the
+    /// lexicon. Accents and elisions are French; numbers/punctuation stay French
+    /// (espeak-fr verbalises numbers in French).
     private func isEnglish(_ token: String, french: Set<String>) -> Bool {
         let lower = token.lowercased()
-        if lower.contains("'") || lower.contains("\u{2019}") { return false }   // French elision
-        let core = lower.filter { $0.isLetter }
-        guard core.count >= 2 else { return false }
-        if core.contains(where: { "àâäçéèêëîïôöùûüÿœæ".contains($0) }) { return false }
-        if french.contains(core) { return false }
-        return core.unicodeScalars.allSatisfy { $0.isASCII }
+        if lower.contains("'") || lower.contains("\u{2019}") { return false }            // elision
+        if lower.contains(where: { "àâäçéèêëîïôöùûüÿœæ".contains($0) }) { return false }   // accent
+        let parts = lower.split { !$0.isLetter }.map(String.init)
+        guard !parts.isEmpty else { return false }                                        // numbers/punct
+        if parts.contains(where: { french.contains($0) }) { return false }                // a French part
+        let allASCII = parts.allSatisfy { $0.unicodeScalars.allSatisfy(\.isASCII) }
+        let hasWord = parts.contains { $0.count >= 2 }
+        return allASCII && hasWord
     }
 
     /// The lexicon's word list, loaded once. Empty (→ no code-switching, all
