@@ -24,6 +24,17 @@ public enum SpeechText {
         s = replacing(s, #"\[([^\]]+)\]\([^)]*\)"#, with: "$1")
         // Bare URLs.
         s = replacing(s, #"https?://[^\s)]+"#, with: " ")
+        // --- Technical-noise normalization (so the voice doesn't read code) ---
+        // Commit hashes / hex blobs — require a digit so real words ("face") survive.
+        s = replacing(s, #"\b(?=[0-9a-fA-F]*[0-9])[0-9a-fA-F]{7,}\b"#, with: " ")
+        // Repo slugs and file paths (a slash between word-ish chars).
+        s = replacing(s, #"[\w.~@-]+/[\w./~@-]+"#, with: " ")
+        // Drop a code-file extension so "Foo.swift" reads as "Foo".
+        s = replacing(s, #"(\b[\w-]+)\.(swift|py|js|ts|jsx|tsx|json|md|sh|ya?ml|toml|cfg|ini|app|safetensors|wav|png|jpe?g|txt|xml|html?|css|rs|go|cpp|hpp|java|rb|php)\b"#, with: "$1")
+        // Make identifiers speakable rather than dropping them: split snake_case
+        // and camelCase into words ("unicodeScalars" → "unicode Scalars").
+        s = replacing(s, #"(?<=\p{L})_(?=\p{L})"#, with: " ")
+        s = replacing(s, #"(\p{Ll}|\d)(\p{Lu})"#, with: "$1 $2")
         // Line-leading markup: ATX headers, list bullets, block quotes, table pipes.
         s = replacing(s, #"(?m)^\s{0,3}#{1,6}\s*"#, with: " ")
         s = replacing(s, #"(?m)^\s{0,3}[-*+]\s+"#, with: " ")
@@ -75,7 +86,14 @@ public enum SpeechText {
                 out.append(contentsOf: hardWrap(piece, maxLength: maxLength))
             }
         }
-        return out
+        return out.filter(isSpeakable)
+    }
+
+    /// Worth speaking? True only when the chunk holds at least two letters —
+    /// drops leftovers like "→ 5 / 5", lone numbers or stray punctuation that a
+    /// voice would either skip or stumble on.
+    public static func isSpeakable(_ s: String) -> Bool {
+        s.filter(\.isLetter).count >= 2
     }
 
     /// Break after `.`, `!`, `?`, `…` (and ellipsis) when followed by space.
