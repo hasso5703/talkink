@@ -1,23 +1,31 @@
 import Foundation
 import MLXAudioTTS
 
-/// Grapheme-to-phoneme via system **espeak-ng**, with **per-word code-switching**
-/// so an English word inside French prose is pronounced in English. The model was
-/// trained on espeak-style IPA, and both espeak-fr and espeak-en output map onto
-/// Kokoro's vocab (verified), so we can switch voice per run and concatenate.
+/// French (and other espeak-language) G2P that **faithfully reproduces the
+/// official Kokoro pipeline** — `misaki.espeak.EspeakG2P(language='fr-fr')` with
+/// no version, exactly what `kokoro.KPipeline(lang_code='f')` builds.
 ///
-/// Language detection uses the French IPA lexicon (≈90k words) as a dictionary:
-/// a token is French if it carries French diacritics, an apostrophe (elision),
-/// or appears in the lexicon — otherwise an ASCII token is treated as English
-/// ("push", "GitHub", identifiers). English voices keep Kokoro's own Misaki G2P.
-/// Falls back to the lexicon processor when espeak isn't installed.
+/// Kokoro was trained on misaki's phoneme output, NOT on raw espeak IPA, so we
+/// run espeak-ng the way phonemizer does (fr-fr, stress, `--tie=^`, drop
+/// language-switch flags) and then apply misaki's post-processing verbatim: merge
+/// the tied digraphs/affricates into Kokoro's symbols, strip the ties, and (the
+/// version=None branch) drop hyphens. No heuristics, no code-switching — that is
+/// not part of the reference pipeline, and bolting English handling onto French
+/// is the documented cause of "French that sounds like accented English"
+/// (kokoro-onnx #68/#108). English voices keep Kokoro's own Misaki G2P; if
+/// espeak isn't installed we fall back to the bundled lexicon processor.
 public final class EspeakG2PProcessor: TextProcessor, @unchecked Sendable {
     private let espeakPath: String?
     private let fallback = KokoroMultilingualProcessor()
-    private let lock = NSLock()
-    private var frenchCache: Set<String>?
 
-    private static let lexiconRepo = "beshkenadze/kokoro-ipa-lexicons"
+    /// misaki's tied-digraph → Kokoro-symbol map (the base set; the optional 2.0
+    /// nasal-vowel remap is NOT applied because `EspeakG2P('fr-fr')` passes no
+    /// version, so French nasals stay as IPA ɔ̃/ɑ̃/ɛ̃/œ̃).
+    private static let e2m: [(String, String)] = [
+        ("a^ɪ", "I"), ("a^ʊ", "W"), ("d^z", "ʣ"), ("d^ʒ", "ʤ"), ("e^ɪ", "A"),
+        ("o^ʊ", "O"), ("ə^ʊ", "Q"), ("s^s", "S"), ("t^s", "ʦ"), ("t^ʃ", "ʧ"),
+        ("ɔ^ɪ", "Y"),
+    ]
 
     public init() {
         let candidates = [
@@ -27,11 +35,8 @@ public final class EspeakG2PProcessor: TextProcessor, @unchecked Sendable {
         espeakPath = candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
-    /// Called once at load. Warm the English (Misaki) fallback and make sure the
-    /// French lexicon — our code-switching dictionary — is on disk.
     public func prepare() async throws {
-        try? await fallback.prepare(for: "en-us")
-        try? await fallback.prepare(for: "fr")
+        try? await fallback.prepare(for: "en-us")   // English voices route to Misaki
     }
 
     public func process(text: String, language: String?) throws -> String {
@@ -39,81 +44,40 @@ public final class EspeakG2PProcessor: TextProcessor, @unchecked Sendable {
         guard let espeak = espeakPath, !lang.isEmpty, !lang.hasPrefix("en") else {
             return try fallback.process(text: text, language: language)
         }
-        let phonemes = codeSwitched(text, frenchVoice: espeakVoice(for: lang), espeak: espeak)
+        let phonemes = misakiPhonemize(text, espeakLanguage: espeakLanguage(for: lang), espeak: espeak)
         return phonemes.isEmpty ? (try fallback.process(text: text, language: language)) : phonemes
     }
 
-    // MARK: - Code-switching
+    /// Faithful port of `misaki.espeak.EspeakG2P.__call__` (version=None).
+    private func misakiPhonemize(_ text: String, espeakLanguage lang: String, espeak: String) -> String {
+        // misaki swaps parentheses for guillemets so espeak doesn't choke on them.
+        var input = text.replacingOccurrences(of: "«", with: "\u{201C}")
+                        .replacingOccurrences(of: "»", with: "\u{201D}")
+        input = input.replacingOccurrences(of: "(", with: "«").replacingOccurrences(of: ")", with: "»")
+        guard var ps = runEspeak(input, language: lang, espeak: espeak) else { return "" }
+        // phonemizer language_switch='remove-flags' — drop "(en)…(fr)" markers.
+        ps = ps.replacingOccurrences(of: #"\([a-z]{2,3}\)"#, with: "", options: .regularExpression)
+        for (old, new) in Self.e2m { ps = ps.replacingOccurrences(of: old, with: new) }
+        ps = ps.replacingOccurrences(of: "^", with: "")   // strip ties
+        ps = ps.replacingOccurrences(of: "-", with: "")   // version=None: drop hyphens
+        ps = ps.replacingOccurrences(of: "«", with: "(").replacingOccurrences(of: "»", with: ")")
+        return ps.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
-    private func codeSwitched(_ text: String, frenchVoice: String, espeak: String) -> String {
-        let french = frenchWords()
-        var runs: [(english: Bool, words: [String])] = []
-        for token in text.split(separator: " ", omittingEmptySubsequences: true) {
-            let english = !french.isEmpty && isEnglish(String(token), french: french)
-            if let last = runs.last, last.english == english {
-                runs[runs.count - 1].words.append(String(token))
-            } else {
-                runs.append((english, [String(token)]))
-            }
+    /// kokoro's `LANG_CODES`: f → fr-fr, e → es, i → it, p → pt-br.
+    private func espeakLanguage(for lang: String) -> String {
+        switch lang.prefix(2) {
+        case "fr": return "fr-fr"
+        case "pt": return "pt-br"
+        default:   return String(lang.prefix(2))
         }
-        var out = ""
-        for run in runs {
-            let voice = run.english ? "en-us" : frenchVoice
-            guard let p = runEspeak(run.words.joined(separator: " "), voice: voice, espeak: espeak),
-                  !p.isEmpty else { continue }
-            out += out.isEmpty ? p : " " + p
-        }
-        return out
     }
 
-    /// A token is English only when every hyphen-separated part is a plain ASCII
-    /// word the French dictionary doesn't know. Crucially this splits on hyphens,
-    /// so common French constructions ("allons-y", "est-ce", "reste-t-il",
-    /// "montre-le-moi") stay French because a part ("allons", "est"…) is in the
-    /// lexicon. Accents and elisions are French; numbers/punctuation stay French
-    /// (espeak-fr verbalises numbers in French).
-    private func isEnglish(_ token: String, french: Set<String>) -> Bool {
-        let lower = token.lowercased()
-        if lower.contains("'") || lower.contains("\u{2019}") { return false }            // elision
-        if lower.contains(where: { "àâäçéèêëîïôöùûüÿœæ".contains($0) }) { return false }   // accent
-        let parts = lower.split { !$0.isLetter }.map(String.init)
-        guard !parts.isEmpty else { return false }                                        // numbers/punct
-        if parts.contains(where: { french.contains($0) }) { return false }                // a French part
-        let allASCII = parts.allSatisfy { $0.unicodeScalars.allSatisfy(\.isASCII) }
-        let hasWord = parts.contains { $0.count >= 2 }
-        return allASCII && hasWord
-    }
-
-    /// The lexicon's word list, loaded once. Empty (→ no code-switching, all
-    /// French) if the file isn't there yet.
-    private func frenchWords() -> Set<String> {
-        lock.lock(); defer { lock.unlock() }
-        if let cached = frenchCache { return cached }
-        var set = Set<String>()
-        let tsv = ModelDownloader.modelDirectory(forRepo: Self.lexiconRepo)
-            .appendingPathComponent("fr_lexicon.tsv")
-        if let content = try? String(contentsOf: tsv, encoding: .utf8) {
-            set.reserveCapacity(100_000)
-            for line in content.split(separator: "\n") {
-                if let tab = line.firstIndex(of: "\t") {
-                    set.insert(String(line[line.startIndex..<tab]).lowercased())
-                }
-            }
-        }
-        frenchCache = set
-        return set
-    }
-
-    // MARK: - espeak
-
-    private func espeakVoice(for lang: String) -> String {
-        lang.hasPrefix("pt") ? "pt" : String(lang.prefix(2))
-    }
-
-    private func runEspeak(_ text: String, voice: String, espeak: String) -> String? {
+    private func runEspeak(_ text: String, language: String, espeak: String) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: espeak)
-        process.arguments = ["-v", voice, "--ipa", "-q", text]
+        // phonemizer EspeakBackend(with_stress=True, tie='^'): --ipa carries stress.
+        process.arguments = ["-v", language, "--ipa", "--tie=^", "-q", text]
         let out = Pipe()
         process.standardOutput = out
         process.standardError = FileHandle.nullDevice
@@ -124,9 +88,6 @@ public final class EspeakG2PProcessor: TextProcessor, @unchecked Sendable {
             guard process.terminationStatus == 0 else { return nil }
             return String(decoding: data, as: UTF8.self)
                 .replacingOccurrences(of: "\n", with: " ")
-                // espeak emits literal language-switch markers like "(en)…(fr)"
-                // for words it auto-detects as foreign — strip them or they tokenize as noise.
-                .replacingOccurrences(of: #"\([a-z]{2,3}\)"#, with: " ", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             Log.tts.error("espeak-ng failed (\(error.localizedDescription, privacy: .public))")
