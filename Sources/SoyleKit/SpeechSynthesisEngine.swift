@@ -91,7 +91,9 @@ public final class SpeechSynthesisEngine: @unchecked Sendable {
         if isLoaded { return }
         try await predownloadReportingProgress()
         await ensureVoicesDownloaded()
-        let loaded = try await TTS.loadModel(modelRepo: repo)
+        // espeak-ng G2P for French (matches what Kokoro was trained on); falls
+        // back to the bundled lexicon processor when espeak isn't present.
+        let loaded = try await TTS.loadModel(modelRepo: repo, textProcessor: EspeakG2PProcessor())
         lock.lock(); if model == nil { model = loaded }; lock.unlock()
     }
 

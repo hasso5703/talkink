@@ -12,7 +12,7 @@ public enum SpeechText {
 
     /// Strip Markdown/code/URLs so the voice reads prose, not syntax.
     public static func clean(_ raw: String) -> String {
-        var s = raw
+        var s = stripSymbols(raw)
         // Fenced code blocks are never read aloud.
         s = replacing(s, #"```[\s\S]*?```"#, with: " ")
         s = replacing(s, #"~~~[\s\S]*?~~~"#, with: " ")
@@ -123,5 +123,25 @@ public enum SpeechText {
         guard let re = try? NSRegularExpression(pattern: pattern) else { return s }
         let range = NSRange(location: 0, length: (s as NSString).length)
         return re.stringByReplacingMatches(in: s, range: range, withTemplate: template)
+    }
+
+    /// Drop emoji and pictographic symbols — they're decorative and the voice
+    /// only stumbles on them. Keeps letters (incl. accents), digits, punctuation.
+    private static func stripSymbols(_ s: String) -> String {
+        var view = String.UnicodeScalarView()
+        for sc in s.unicodeScalars {
+            if sc.properties.generalCategory == .otherSymbol { continue }
+            switch sc.value {
+            case 0x1F000...0x1FAFF,   // emoji & pictographs
+                 0x2600...0x27BF,     // misc symbols, dingbats
+                 0x2B00...0x2BFF,     // arrows, stars
+                 0xFE00...0xFE0F,     // variation selectors
+                 0x200D:              // zero-width joiner
+                continue
+            default:
+                view.append(sc)
+            }
+        }
+        return String(view)
     }
 }

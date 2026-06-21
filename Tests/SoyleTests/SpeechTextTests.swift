@@ -40,6 +40,14 @@ final class SpeechTextTests: XCTestCase {
         XCTAssertTrue(s.contains("en italique"))
     }
 
+    func testStripsEmojiAndSymbols() {
+        let s = SpeechText.clean("C'est fait ✅ et poussé 🚀 sur GitHub 🎯.")
+        XCTAssertFalse(s.unicodeScalars.contains { $0.properties.generalCategory == .otherSymbol })
+        XCTAssertTrue(s.contains("C'est fait"))
+        XCTAssertTrue(s.contains("GitHub"))
+        XCTAssertFalse(s.contains("✅"))
+    }
+
     // MARK: sentences
 
     func testSplitsOnSentenceEnders() {

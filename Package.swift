@@ -19,11 +19,15 @@ let package = Package(
         .library(name: "SoyleKit", targets: ["SoyleKit"]),
     ],
     dependencies: [
-        // Native Swift Nemotron 3.5 ASR (MLX). Pinned to a specific commit for reproducibility
-        // (the package tracks `main` with no release tag).
+        // Native Swift MLX audio (ASR + Kokoro TTS). Pinned to our fork of the
+        // exact upstream commit Talkink used, which adds one fix: Kokoro now
+        // tokenizes phonemes by Unicode scalar instead of grapheme cluster —
+        // upstream dropped French nasal vowels (ɔ̃/ɑ̃/ɛ̃/œ̃ = base + combining
+        // tilde, one cluster) because their vocab keys are single scalars. PR
+        // proposed upstream; revert to Blaizzy's once merged.
         .package(
-            url: "https://github.com/Blaizzy/mlx-audio-swift.git",
-            revision: "417df212f54b8b4214a9815c1cd2eabb05fd4fdf"
+            url: "https://github.com/hasso5703/mlx-audio-swift.git",
+            revision: "1edee4df7e42518d3103da6748a8cb7e872d673c"
         ),
         // Auto-updates (appcast + EdDSA-signed deltas). Pinned exact.
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.3"),
