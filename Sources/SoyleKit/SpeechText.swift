@@ -1,0 +1,127 @@
+import Foundation
+
+/// Turns a raw assistant message (GitHub-flavoured Markdown) into clean,
+/// sentence-sized chunks fit for a TTS voice. Ported from the Python reader so
+/// the spoken result matches what users already heard, and kept pure + static
+/// so it can be unit-tested without a model. Two stages: `clean` strips markup
+/// and code that shouldn't be read out, `sentences` splits into short pieces for
+/// low-latency synthesis and steady pacing.
+public enum SpeechText {
+
+    // MARK: - Cleaning
+
+    /// Strip Markdown/code/URLs so the voice reads prose, not syntax.
+    public static func clean(_ raw: String) -> String {
+        var s = raw
+        // Fenced code blocks are never read aloud.
+        s = replacing(s, #"```[\s\S]*?```"#, with: " ")
+        s = replacing(s, #"~~~[\s\S]*?~~~"#, with: " ")
+        // Inline code: keep a short, simple span (it's usually a word like
+        // `preset`), but drop anything long or path-like that would read as noise.
+        s = replacingInlineCode(s)
+        // Images first (drop), then links → their visible text.
+        s = replacing(s, #"!\[[^\]]*\]\([^)]*\)"#, with: " ")
+        s = replacing(s, #"\[([^\]]+)\]\([^)]*\)"#, with: "$1")
+        // Bare URLs.
+        s = replacing(s, #"https?://[^\s)]+"#, with: " ")
+        // Line-leading markup: ATX headers, list bullets, block quotes, table pipes.
+        s = replacing(s, #"(?m)^\s{0,3}#{1,6}\s*"#, with: " ")
+        s = replacing(s, #"(?m)^\s{0,3}[-*+]\s+"#, with: " ")
+        s = replacing(s, #"(?m)^\s{0,3}>\s?"#, with: " ")
+        // Emphasis / strikethrough / leftover code ticks → gone.
+        s = replacing(s, #"[*_`~]+"#, with: "")
+        // Table cell separators read as nothing useful.
+        s = replacing(s, #"\s*\|\s*"#, with: " ")
+        // Collapse the whitespace the substitutions left behind.
+        s = replacing(s, #"[ \t]+"#, with: " ")
+        s = replacing(s, #"\s*\n\s*"#, with: "\n")
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Keep `short` inline code, drop long or path-like spans (a backtick block
+    /// such as `~/.claude/tts/x.py` reads terribly).
+    private static func replacingInlineCode(_ s: String) -> String {
+        guard let re = try? NSRegularExpression(pattern: #"`([^`\n]*)`"#) else { return s }
+        let ns = s as NSString
+        var result = ""
+        var last = 0
+        for m in re.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
+            result += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            let inner = ns.substring(with: m.range(at: 1))
+            result += (inner.count <= 24 && !inner.contains("/")) ? inner : " "
+            last = m.range.location + m.range.length
+        }
+        result += ns.substring(from: last)
+        return result
+    }
+
+    // MARK: - Sentence splitting
+
+    /// Split cleaned text into chunks no longer than `maxLength`, breaking on
+    /// sentence enders first and hard-wrapping anything still too long. Kokoro
+    /// sounds best around 100–200 characters; short chunks also mean the first
+    /// words are heard sooner.
+    public static func sentences(_ text: String, maxLength: Int = 220) -> [String] {
+        let normalized = replacing(text, #"\s+"#, with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return [] }
+
+        var out: [String] = []
+        for raw in splitOnEnders(normalized) {
+            let piece = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if piece.isEmpty { continue }
+            if piece.count <= maxLength {
+                out.append(piece)
+            } else {
+                out.append(contentsOf: hardWrap(piece, maxLength: maxLength))
+            }
+        }
+        return out
+    }
+
+    /// Break after `.`, `!`, `?`, `…` (and ellipsis) when followed by space.
+    private static func splitOnEnders(_ text: String) -> [String] {
+        var result: [String] = []
+        var current = ""
+        let enders: Set<Character> = [".", "!", "?", "…"]
+        let chars = Array(text)
+        for (i, ch) in chars.enumerated() {
+            current.append(ch)
+            if enders.contains(ch) {
+                let next = i + 1 < chars.count ? chars[i + 1] : " "
+                if next == " " {
+                    result.append(current)
+                    current = ""
+                }
+            }
+        }
+        if !current.isEmpty { result.append(current) }
+        return result
+    }
+
+    /// Split an over-long sentence on the last comma/space before the limit, so
+    /// no chunk exceeds `maxLength` while still breaking at a natural pause.
+    private static func hardWrap(_ sentence: String, maxLength: Int) -> [String] {
+        var pieces: [String] = []
+        var rest = Substring(sentence)
+        while rest.count > maxLength {
+            let window = rest.prefix(maxLength)
+            let breakIndex = window.lastIndex(of: ",")
+                ?? window.lastIndex(of: " ")
+                ?? window.index(before: window.endIndex)
+            let cut = rest.index(after: breakIndex)
+            pieces.append(rest[..<cut].trimmingCharacters(in: .whitespaces))
+            rest = rest[cut...]
+        }
+        let tail = rest.trimmingCharacters(in: .whitespaces)
+        if !tail.isEmpty { pieces.append(tail) }
+        return pieces.filter { !$0.isEmpty }
+    }
+
+    // MARK: - Regex helper
+
+    private static func replacing(_ s: String, _ pattern: String, with template: String) -> String {
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return s }
+        let range = NSRange(location: 0, length: (s as NSString).length)
+        return re.stringByReplacingMatches(in: s, range: range, withTemplate: template)
+    }
+}

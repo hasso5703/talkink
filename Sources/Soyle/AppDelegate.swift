@@ -20,6 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let recorder = Recorder()
     private let overlay = OverlayController()
     private lazy var settingsWindowController = SettingsWindowController(settings: settings)
+    /// Native "read Claude Code aloud" feature — fully independent of the ASR
+    /// path above (own engine, player and audio engine), so the two coexist.
+    /// Created in `applicationDidFinishLaunching` (the type is `@MainActor`).
+    private var claudeCodeTTS: ClaudeCodeTTSController!
 
     private var statusItem: NSStatusItem!
     private var cancellables = Set<AnyCancellable>()
@@ -42,6 +46,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         CrashSentinel.checkAndArm()
+        // The reader feature is @MainActor and this delegate runs on the main
+        // actor; bridge across the (non-isolated) AppKit delegate explicitly.
+        MainActor.assumeIsolated {
+            claudeCodeTTS = ClaudeCodeTTSController(settings: settings)
+            claudeCodeTTS.onStatusChange = { [weak self] in self?.updateMenu() }
+        }
         setupStatusItem()
 
         recorder.onLevel = { [weak self] lvl in self?.overlay.updateLevel(lvl) }
@@ -68,6 +78,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         ptt.handsFreeEnabled = settings.handsFreeDoubleTap
         observeSettings()
+        // Apply the saved on/off preference (a no-op, instantly, when it's off).
+        MainActor.assumeIsolated { claudeCodeTTS.applyInitialState() }
         // Run the version-change check first: it marks onboarding complete for
         // updating users, which gates whether the wizard shows below.
         announceVersionChangeIfNeeded()
@@ -302,6 +314,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.$handsFreeDoubleTap
             .dropFirst()
             .sink { [weak self] enabled in self?.ptt.handsFreeEnabled = enabled }
+            .store(in: &cancellables)
+        settings.$claudeCodeTTSEnabled
+            .dropFirst()
+            .sink { [weak self] enabled in
+                MainActor.assumeIsolated { self?.claudeCodeTTS.setEnabled(enabled) }
+            }
             .store(in: &cancellables)
     }
 
@@ -726,6 +744,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sounds.state = settings.playSounds ? .on : .off
         menu.addItem(sounds)
 
+        addClaudeCodeReadingItems(to: menu)
+
         menu.addItem(.separator())
         menu.addItem(item("Open Talkink (history, settings)…", #selector(openSettings), key: ","))
         menu.addItem(item("Check for Updates…", #selector(checkForUpdates)))
@@ -787,6 +807,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleSounds() { settings.playSounds.toggle(); updateMenu() }
+
+    /// "Read Claude Code Aloud" toggle + voice picker — shown only when Claude
+    /// Code is installed (otherwise the feature has nothing to read).
+    private func addClaudeCodeReadingItems(to menu: NSMenu) {
+        guard let cc = claudeCodeTTS else { return }
+        let snapshot = MainActor.assumeIsolated { (available: cc.isAvailable, status: cc.status) }
+        guard snapshot.available else { return }
+        menu.addItem(.separator())
+        let title: String
+        switch snapshot.status {
+        case .loading(let pct):
+            title = pct.map { "Read Claude Code Aloud — loading \($0)%…" }
+                ?? "Read Claude Code Aloud — loading…"
+        case .failed(let why):
+            title = "Read Claude Code Aloud — \(why)"
+        default:
+            title = "Read Claude Code Aloud"
+        }
+        let read = item(title, #selector(toggleClaudeCodeTTS))
+        read.state = settings.claudeCodeTTSEnabled ? .on : .off
+        menu.addItem(read)
+
+        guard settings.claudeCodeTTSEnabled else { return }
+        let voiceName = (TTSCatalog.voice(forID: settings.claudeCodeTTSVoice) ?? TTSCatalog.default).displayName
+        let voiceItem = NSMenuItem(title: "Reading Voice: \(voiceName)", action: nil, keyEquivalent: "")
+        let voiceMenu = NSMenu()
+        for voice in TTSCatalog.voices {
+            let mi = item("\(voice.flag)  \(voice.displayName)", #selector(selectTTSVoice(_:)))
+            mi.representedObject = voice.id
+            mi.state = (voice.id == settings.claudeCodeTTSVoice) ? .on : .off
+            voiceMenu.addItem(mi)
+        }
+        voiceItem.submenu = voiceMenu
+        menu.addItem(voiceItem)
+    }
+
+    @objc private func toggleClaudeCodeTTS() {
+        settings.claudeCodeTTSEnabled.toggle()
+        updateMenu()
+    }
+
+    @objc private func selectTTSVoice(_ sender: NSMenuItem) {
+        if let id = sender.representedObject as? String {
+            MainActor.assumeIsolated { claudeCodeTTS.setVoice(id) }
+            updateMenu()
+        }
+    }
 
     @objc private func openSettings() { settingsWindowController.show() }
 

@@ -53,6 +53,121 @@ enum SelfTest {
         dispatchMain()
     }
 
+    /// Headless TTS check: loads Kokoro and synthesises a French phrase to a WAV,
+    /// proving the native voice path (model + lexicon + iSTFT vocoder) works
+    /// without the GUI or an audio device. Usage:
+    ///   Soyle --ttstest ["some text"]   → writes /tmp/talkink_tts_test.wav
+    static func runTTSTest(text: String) -> Never {
+        let engine = SpeechSynthesisEngine()
+        final class LastPct: @unchecked Sendable { var value = -1 }
+        let last = LastPct()
+        engine.onDownloadProgress = { fraction in
+            let pct = Int(fraction * 20) * 5
+            if pct != last.value {
+                last.value = pct
+                FileHandle.standardError.write(Data("[ttstest] downloading voice… \(pct)%\n".utf8))
+            }
+        }
+        let voice = TTSCatalog.default   // French ff_siwis
+        Task {
+            do {
+                try await engine.load()
+                let t0 = CFAbsoluteTimeGetCurrent()
+                let samples = try await engine.synthesize(text: text, voice: voice.id, language: voice.language)
+                let infer = CFAbsoluteTimeGetCurrent() - t0
+                let sr = engine.sampleRate
+                guard !samples.isEmpty else {
+                    FileHandle.standardError.write(Data("[ttstest] ERROR: empty audio\n".utf8))
+                    exit(1)
+                }
+                let seconds = Double(samples.count) / Double(sr)
+                let out = URL(fileURLWithPath: "/tmp/talkink_tts_test.wav")
+                try writeWAV(samples: samples, sampleRate: sr, to: out)
+                FileHandle.standardError.write(Data(String(
+                    format: "[ttstest] OK — voice=%@ lang=%@ audio=%.2fs synth=%.2fs %.1fx RT sr=%d\n",
+                    voice.id, voice.language ?? "auto", seconds, infer,
+                    infer > 0 ? seconds / infer : 0, sr).utf8))
+                print(out.path)
+                exit(0)
+            } catch {
+                FileHandle.standardError.write(Data("[ttstest] ERROR: \(error)\n".utf8))
+                exit(1)
+            }
+        }
+        dispatchMain()
+    }
+
+    private static func writeWAV(samples: [Float], sampleRate: Int, to url: URL) throws {
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                   sampleRate: Double(sampleRate),
+                                   channels: 1, interleaved: false)!
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        let buffer = AVAudioPCMBuffer(pcmFormat: format,
+                                      frameCapacity: AVAudioFrameCount(samples.count))!
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        samples.withUnsafeBufferPointer { src in
+            if let base = src.baseAddress {
+                buffer.floatChannelData![0].update(from: base, count: samples.count)
+            }
+        }
+        try file.write(from: buffer)
+    }
+
+    /// Coexistence test: loads BOTH the ASR and TTS models in one process and
+    /// runs transcription and synthesis concurrently, proving they share the GPU
+    /// without a Metal/stream crash — i.e. dictation and reading-aloud can run at
+    /// the same time. Usage: Soyle --cotest AUDIO.wav
+    static func runCoexistenceTest(audioPath: String) -> Never {
+        guard !audioPath.isEmpty else { note("[cotest] usage: --cotest AUDIO.wav"); exit(2) }
+        let asr = TranscriptionEngine(
+            model: ASRCatalog.option(forID: "mlx-community/nemotron-3.5-asr-streaming-0.6b-8bit")!)
+        let tts = SpeechSynthesisEngine()
+        let url = URL(fileURLWithPath: (audioPath as NSString).expandingTildeInPath)
+        Task {
+            do {
+                try await asr.load()
+                try await tts.load()
+                note("[cotest] both models loaded — running ASR + TTS concurrently…")
+                async let ttsCount = ttsLoop(tts, rounds: 5)   // child task, runs in parallel
+                let asrCount = try asrLoop(asr, url: url, rounds: 5)   // runs on this task
+                let ttsOK = try await ttsCount
+                note("[cotest] DONE — ASR \(asrCount)/5, TTS \(ttsOK)/5 — no crash = coexistence OK")
+                exit((asrCount == 5 && ttsOK == 5) ? 0 : 1)
+            } catch {
+                note("[cotest] ERROR: \(error)")
+                exit(1)
+            }
+        }
+        dispatchMain()
+    }
+
+    private static func asrLoop(_ asr: TranscriptionEngine, url: URL, rounds: Int) throws -> Int {
+        var ok = 0
+        for i in 0..<rounds {
+            let r = try asr.transcribe(fileURL: url, language: "fr-FR")
+            note("[cotest]   ASR#\(i) \(Int(r.realtimeFactor))x RT")
+            if !r.text.isEmpty { ok += 1 }
+        }
+        return ok
+    }
+
+    private static func ttsLoop(_ tts: SpeechSynthesisEngine, rounds: Int) async throws -> Int {
+        let voice = TTSCatalog.default
+        var ok = 0
+        for i in 0..<rounds {
+            let s = try await tts.synthesize(
+                text: "Lecture et dictée en même temps, essai numéro \(i).",
+                voice: voice.id, language: voice.language)
+            note("[cotest]   TTS#\(i) \(s.count) samples")
+            if !s.isEmpty { ok += 1 }
+        }
+        return ok
+    }
+
+    private static func note(_ s: String) {
+        FileHandle.standardError.write(Data((s + "\n").utf8))
+    }
+
     /// Memory regression test: loads the biggest cached Qwen, switches to the
     /// smallest Nemotron, and proves the old weights actually left the process
     /// (MLX active memory + buffer cache + OS footprint). Guards the

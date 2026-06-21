@@ -18,6 +18,22 @@ if CommandLine.arguments.contains("--memtest") {
     SelfTest.runMemTest() // never returns
 }
 
+// Headless TTS check — native Kokoro French synthesis to a WAV (no GUI/audio device).
+if let i = CommandLine.arguments.firstIndex(of: "--ttstest") {
+    let next = (i + 1 < CommandLine.arguments.count) ? CommandLine.arguments[i + 1] : ""
+    let text = (next.isEmpty || next.hasPrefix("--"))
+        ? "Bonjour Hasan. Ceci est un test de la voix française, intégrée nativement dans Talkink."
+        : next
+    SelfTest.runTTSTest(text: text) // never returns
+}
+
+// Headless coexistence check — ASR + TTS concurrently in one process (proves the
+// two share the GPU without a crash). Usage: Soyle --cotest AUDIO.wav
+if let i = CommandLine.arguments.firstIndex(of: "--cotest") {
+    let path = (i + 1 < CommandLine.arguments.count) ? CommandLine.arguments[i + 1] : ""
+    SelfTest.runCoexistenceTest(audioPath: path) // never returns
+}
+
 #if SOYLE_DEVTOOLS
 // Headless Silero VAD vs RMS comparison on real audio files (no GUI/model).
 if let i = CommandLine.arguments.firstIndex(of: "--vadtest") {

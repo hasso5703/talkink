@@ -15,4 +15,5 @@ public enum Log {
     public static let update = Logger(subsystem: subsystem, category: "update")
     public static let storage = Logger(subsystem: subsystem, category: "storage")
     public static let paste = Logger(subsystem: subsystem, category: "paste")
+    public static let tts = Logger(subsystem: subsystem, category: "tts")
 }
