@@ -109,6 +109,8 @@ final class SettingsStore: ObservableObject {
         static let hasOnboarded = "soyle.hasOnboarded"
         static let hasPickedLanguage = "soyle.hasPickedLanguage"
         static let hasCompletedOnboarding = "soyle.hasCompletedOnboarding"
+        static let claudeCodeTTSEnabled = "soyle.claudeCodeTTSEnabled"
+        static let claudeCodeTTSVoice = "soyle.claudeCodeTTSVoice"
     }
 
     @Published var language: SoyleLanguage {
@@ -155,6 +157,15 @@ final class SettingsStore: ObservableObject {
     @Published var hasCompletedOnboarding: Bool {
         didSet { defaults.set(hasCompletedOnboarding, forKey: K.hasCompletedOnboarding) }
     }
+    /// Read Claude Code's replies aloud with the native Kokoro voice. Off by
+    /// default; only meaningful when Claude Code is installed.
+    @Published var claudeCodeTTSEnabled: Bool {
+        didSet { defaults.set(claudeCodeTTSEnabled, forKey: K.claudeCodeTTSEnabled) }
+    }
+    /// Kokoro voice id used for reading Claude Code (default = French ff_siwis).
+    @Published var claudeCodeTTSVoice: String {
+        didSet { defaults.set(claudeCodeTTSVoice, forKey: K.claudeCodeTTSVoice) }
+    }
     /// Set on the first launch of a new version — drives this session's
     /// "updated" banner. Not persisted.
     @Published var justUpdatedToVersion: String?
@@ -179,6 +190,8 @@ final class SettingsStore: ObservableObject {
         hasOnboarded = defaults.bool(forKey: K.hasOnboarded)
         hasPickedLanguage = defaults.bool(forKey: K.hasPickedLanguage)
         hasCompletedOnboarding = defaults.bool(forKey: K.hasCompletedOnboarding)
+        claudeCodeTTSEnabled = defaults.object(forKey: K.claudeCodeTTSEnabled) as? Bool ?? false
+        claudeCodeTTSVoice = defaults.string(forKey: K.claudeCodeTTSVoice) ?? TTSCatalog.default.id
     }
 
     private func applyLoginItem(_ on: Bool) {
